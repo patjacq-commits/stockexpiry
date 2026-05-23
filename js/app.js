@@ -67,6 +67,22 @@
   function load(k) { try { return JSON.parse(localStorage.getItem(k)) || null; } catch { return null; } }
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
+  // ── Version check — reset initial products if data version changed ─────────
+  const DATA_VERSION = '2026-05-23-v3';
+  const storedVersion = localStorage.getItem('se_data_version');
+  if (storedVersion !== DATA_VERSION) {
+    // Keep existing sales, only reset the initial product list
+    // Merge: keep products added manually (addedAt > app first launch), reset the rest
+    const existingProducts = load('se_products') || [];
+    const manuallyAdded = existingProducts.filter(p => p.barcode || p._manual);
+    const freshProducts = window.INITIAL_PRODUCTS.map(p => ({
+      id: uid(), name: p.name, category: window.guessCategory(p.name),
+      exp: p.exp, price: 2.50, active: true, sold: false, addedAt: Date.now()
+    }));
+    save('se_products', [...freshProducts, ...manuallyAdded]);
+    localStorage.setItem('se_data_version', DATA_VERSION);
+  }
+
   // ── State ──────────────────────────────────────────────────────────────────
   let products = load('se_products');
   if (!products) {
