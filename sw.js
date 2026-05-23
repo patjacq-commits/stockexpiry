@@ -1,4 +1,4 @@
-const CACHE='stockexpiry-v1';
+const CACHE='stockexpiry-v3';
 const ASSETS=['./index.html','./css/style.css','./js/app.js','./js/data.js','./manifest.json'];
 
 self.addEventListener('install',e=>{
