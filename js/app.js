@@ -68,7 +68,7 @@
   function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
   // ── Version check — reset initial products if data version changed ─────────
-  const DATA_VERSION = '2026-05-23-v3';
+  const DATA_VERSION = '2026-05-23-v4';
   const storedVersion = localStorage.getItem('se_data_version');
   if (storedVersion !== DATA_VERSION) {
     // Keep existing sales, only reset the initial product list
@@ -259,6 +259,66 @@
     render();
   }
 
+  // ── Dictionnaire de corrections marques alimentaires ──────────────────────
+  // Format : [ [regex_phonétique, correction_exacte], ... ]
+  // Couvre les erreurs typiques du moteur Google fr-BE
+  const BRAND_CORRECTIONS = [
+    // Chips & snacks
+    [/\bcroky\b|\bcroquis\b|\bcroque\b|\bcrokey\b|\bcroquet\b|\bcroquer\b/i, 'Croky'],
+    [/\blay'?s\b|\bneils?\b|\bneil\b|\blés\b|\blait\b|\blei\b|\bley\b/i, "Lay's"],
+    [/\bdoritos\b|\bdorito\b|\bdo rito\b|\bdolitos\b|\bdorritos\b/i, 'Doritos'],
+    [/\bbugles\b|\bbugle\b|\bbougles\b|\bbugl\b|\bbug les\b/i, 'Bugles'],
+    [/\bpringles\b|\bpringle\b|\bpringel\b|\bpringels\b/i, 'Pringles'],
+    [/\bgrills\b|\bgrill\b|\bgrils\b|\bgris\b/i, 'Grills'],
+    [/\bcha.?cha\b|\bcha cha\b|\btcha tcha\b|\bchà-chà\b/i, 'Cha-cha'],
+    [/\btuc\b|\btuck\b|\btuk\b/i, 'Tuc'],
+    [/\bcrac.?à.?nut\b|\bcrac a nut\b|\bcrac au nut\b|\bkrak a nut\b/i, 'Crac à nut'],
+    [/\bcurly\b|\bcurli\b|\bcurlé\b|\bcurley\b/i, 'Curly'],
+    // Chocolat
+    [/\bmilka\b|\bmilca\b|\bmilkà\b|\bmilqa\b/i, 'Milka'],
+    [/\bcôte.?d.?or\b|\bcôté.?d.?or\b|\bcote.?d.?or\b|\bcoté.?d.?or\b|\bcôt d'or\b|\bcode or\b|\bkot d'or\b/i, "Côte d'or"],
+    [/\bkinder\b|\bquinder\b|\bkinderl\b|\bkindre\b/i, 'Kinder'],
+    [/\bbueno\b|\bbuenno\b|\bbueno\b|\bweno\b|\bbuemo\b/i, 'Bueno'],
+    [/\bbounty\b|\bbounti\b|\bbounté\b|\bboundy\b/i, 'Bounty'],
+    [/\btwix\b|\btwicks\b|\btwi\b|\btouix\b/i, 'Twix'],
+    [/\bmars\b/i, 'Mars'],
+    [/\bsnickers\b|\bsniker\b|\bsnikers\b|\bsniqueur\b/i, 'Snickers'],
+    [/\bbalisto\b|\bbalistot\b|\bbalisteau\b/i, 'Balisto'],
+    [/\boreo\b|\borréo\b|\boréo\b|\boreos\b/i, 'Oreo'],
+    [/\bdinosaurus\b|\bdinosaus\b|\bdinosaure\b|\bdinosaurs\b/i, 'Dinosaurus'],
+    [/\bcanasta\b|\bkanasta\b/i, 'Canasta'],
+    // Charcuterie
+    [/\baiki\b|\baïki\b|\baicky\b|\baïky\b|\baïqui\b/i, 'Aiki'],
+    [/\baoste\b|\baost\b|\baôste\b|\bauste\b/i, 'Aoste'],
+    [/\bbifi\b|\bbify\b|\bbiffy\b|\bbeaufi\b|\bbéfi\b/i, 'Bifi'],
+    [/\bzwan\b|\bzouane\b|\bsouan\b|\bzouant\b/i, 'Zwan'],
+    // Biscuits & gaufres
+    [/\bbelvita\b|\bbel vita\b|\bbelvitah\b|\bbelwita\b/i, 'Belvita'],
+    [/\bgaufre\b/i, 'Gaufre'],
+    [/\bdubai\b|\bdoubaï\b|\bdubay\b/i, 'Dubai'],
+    [/\bfreedent\b|\bfree dent\b|\bfrident\b|\bfreedant\b/i, 'Freedent'],
+    [/\bknorr\b|\bnor\b|\bknor\b|\bknorre\b/i, 'Knorr'],
+    [/\bléo\b|\bleo\b|\blé.?o\b/i, 'Léo'],
+    // Adjectifs produits fréquents
+    [/\bclassic\b|\bclassique\b|\bklassic\b/i, 'Classic'],
+    [/\bpraliné\b|\bpralin\b|\bpralinée\b/i, 'praliné'],
+    [/\bnoisette\b|\bnoizette\b/i, 'noisette'],
+    [/\bcaramel\b|\bkaramel\b/i, 'caramel'],
+    [/\bchocolat\b|\bchoco\b/i, 'chocolat'],
+    [/\bcurry\b|\bcuri\b|\bcurri\b/i, 'curry'],
+    [/\bpaprika\b|\bpapriqua\b|\bpaprica\b/i, 'paprika'],
+  ];
+
+  function correctBrands(text) {
+    let result = text;
+    for (const [pattern, replacement] of BRAND_CORRECTIONS) {
+      result = result.replace(pattern, replacement);
+    }
+    // Capitalize first letter
+    result = result.charAt(0).toUpperCase() + result.slice(1);
+    return result;
+  }
+
   // ── Voice ──────────────────────────────────────────────────────────────────
   function startVoice(fieldKey) {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -267,18 +327,29 @@
     const rec = new SR();
     rec.lang = 'fr-BE';
     rec.interimResults = false;
-    rec.maxAlternatives = 1;
+    rec.maxAlternatives = 5; // récupère plusieurs alternatives pour choisir la meilleure
     state.recognition = rec;
     state.voiceField = fieldKey;
     render();
     rec.onresult = (e) => {
+      // Essaie toutes les alternatives et prend celle qui matche le mieux un mot connu
       let transcript = e.results[0][0].transcript.trim();
-      // Post-process for date and price fields
-      if (fieldKey === 'exp') {
-        // Try to extract date from speech like "trente et un décembre deux mille vingt-cinq"
+      if (fieldKey === 'name') {
+        // Teste toutes les alternatives disponibles
+        for (let i = 0; i < e.results[0].length; i++) {
+          const alt = e.results[0][i].transcript.trim();
+          const corrected = correctBrands(alt);
+          // Si la correction a changé quelque chose, c'est qu'on a reconnu une marque → priorité
+          if (corrected !== alt.charAt(0).toUpperCase() + alt.slice(1)) {
+            transcript = corrected;
+            break;
+          }
+        }
+        // Applique quand même la correction sur la transcription principale
+        transcript = correctBrands(transcript);
+      } else if (fieldKey === 'exp') {
         transcript = parseVoiceDate(transcript) || transcript;
       } else if (fieldKey === 'price') {
-        // "deux virgule cinquante" → "2.50"
         transcript = parseVoicePrice(transcript) || transcript;
       }
       state.form[fieldKey] = transcript;
