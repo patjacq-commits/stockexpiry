@@ -161,3 +161,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 /* ── Req marker ──────────────────────────────────────────────────────────── */
 .req{color:#ff6b35;font-size:11px}
+
+/* ── Quantity controls ───────────────────────────────────────────────────── */
+.qty-row{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.qty-btn{width:26px;height:26px;border-radius:6px;border:1px solid #2a2d3e;background:#0f1117;color:#e8eaf0;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0}
+.qty-btn:active{background:#2a2d3e}
+.qty-val{font-size:15px;font-weight:800;color:#e8eaf0;min-width:22px;text-align:center}
+.qty-unit{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.4px}
+
+/* ── Expired action button ───────────────────────────────────────────────── */
+.btn-expired{color:#ff3b30;border-color:rgba(255,59,48,0.4)}
+
+/* ── Clickable stat cards ────────────────────────────────────────────────── */
+.stat-card.clickable{cursor:pointer;transition:transform 0.12s,box-shadow 0.12s;user-select:none}
+.stat-card.clickable:active{transform:scale(0.95)}
+.stat-card.stat-active{box-shadow:0 0 0 2px var(--c);background:rgba(255,255,255,0.04)}
+
+/* ── Filter active hint ──────────────────────────────────────────────────── */
+.filter-active-hint{font-size:12px;color:#888;margin-bottom:10px;display:flex;align-items:center;gap:6px;background:#1a1d27;border-radius:8px;padding:7px 12px}
+.clear-filter-btn{background:transparent;border:none;color:#4f8ef7;font-size:12px;cursor:pointer;padding:0;font-weight:700}
+
+/* ── Tab badge ───────────────────────────────────────────────────────────── */
+.tab-badge{display:inline-flex;align-items:center;justify-content:center;background:#ff3b30;color:#fff;border-radius:8px;padding:0 4px;font-size:9px;font-weight:800;min-width:14px;height:14px;margin-left:3px;vertical-align:middle}
+
+/* ── 4 nav tabs (smaller) ────────────────────────────────────────────────── */
+.nav-tab{font-size:9px;padding:8px 2px 6px}
+.tab-icon{font-size:18px}
