@@ -1,5 +1,5 @@
-const CACHE='stockexpiry-v7';
-const ASSETS=['./index.html','./css/style.css','./js/app.js','./js/data.js','./manifest.json'];
+const CACHE='stockexpiry-v9';
+const ASSETS=['./index.html','./css/style.css','./js/app.js','./js/data.js','./manifest.json','./icons/esso-192.png','./icons/esso-512.png'];
 
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));
