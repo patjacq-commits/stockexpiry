@@ -66,7 +66,7 @@
   function save(k,v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
   // ── Version / reset ────────────────────────────────────────────────────────
-  const DATA_VERSION = '2026-05-23-v5';
+  const DATA_VERSION = '2026-05-28-v7';
   if (localStorage.getItem('se_data_version') !== DATA_VERSION) {
     const existing = load('se_products') || [];
     const manual   = existing.filter(p => p._manual || p.barcode);
@@ -111,6 +111,7 @@
     barcodeLoading: false,
     voiceField: null,
     recognition: null,
+    pendingRecode: null,  // { newCode, catalogKey } quand changement de code détecté
   };
 
   // ── Computed groups ────────────────────────────────────────────────────────
@@ -147,9 +148,22 @@
     state._tt = setTimeout(() => { state.toast = null; render(); }, 3000);
   }
 
-  // ── Open Food Facts ────────────────────────────────────────────────────────
+  // ── Open Food Facts + résolution catalogue local ──────────────────────────
   async function lookupBarcode(code) {
-    if (barcodeCache[code]) return barcodeCache[code];
+    // 1) Catalogue local en priorité (ton prix, ta catégorie)
+    const local = catalogByBarcode(code);
+    if (local) return { ...local, fromLocal: true };
+
+    // 2) Cache OFF (évite requête réseau répétée)
+    if (barcodeCache[code]) {
+      const cached = barcodeCache[code];
+      // Vérifier si un produit du catalogue a le même nom → changement de code possible
+      const similar = catalogByName(cached.name);
+      if (similar) return { ...similar, newCode: code, fromLocal: true, possibleRecode: true };
+      return cached;
+    }
+
+    // 3) Open Food Facts
     try {
       const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}?fields=product_name,product_name_fr,brands,categories_tags`, { signal: AbortSignal.timeout(6000) });
       if (!r.ok) return null;
@@ -167,6 +181,9 @@
       const result = { name: fullName, brand, category: cat };
       barcodeCache[code] = result;
       save('se_barcodes', barcodeCache);
+      // Vérifier si un produit du catalogue a un nom similaire → changement de code
+      const similar = catalogByName(fullName);
+      if (similar) return { ...similar, newCode: code, fromLocal: true, possibleRecode: true };
       return result;
     } catch { return null; }
   }
@@ -200,8 +217,22 @@
         showToast('Code détecté : ' + code + ' — recherche…','info');
         const info = await lookupBarcode(code);
         state.barcodeLoading = false;
-        if (info && info.name) { state.form.name = info.name; state.form.category = info.category || ''; showToast('Produit trouvé : ' + info.name,'success'); }
-        else showToast('Produit non trouvé — saisie manuelle','info');
+        if (info && info.name) {
+          state.form.name     = info.name;
+          state.form.category = info.category || '';
+          state.form.price    = info.price ? String(info.price) : state.form.price;
+          if (info.fromLocal && info.possibleRecode) {
+            // Proposer de lier ce nouveau code à l'entrée catalogue existante
+            state.pendingRecode = { newCode: code, catalogKey: info.name.trim().toLowerCase() };
+            showToast('Produit connu — nouveau code détecté ?', 'info');
+          } else if (info.fromLocal) {
+            showToast('✓ ' + info.name + ' (catalogue local)','success');
+          } else {
+            showToast('Produit trouvé : ' + info.name,'success');
+          }
+        } else {
+          showToast('Produit non trouvé — saisie manuelle','info');
+        }
         render(); return;
       }
     } catch {}
@@ -219,8 +250,21 @@
     state.barcodeLoading = true; render();
     const info = await lookupBarcode(code);
     state.barcodeLoading = false;
-    if (info && info.name) { state.form.name = info.name; state.form.category = info.category || state.form.category; showToast('✓ ' + info.name,'success'); }
-    else showToast('Produit non trouvé dans Open Food Facts','info');
+    if (info && info.name) {
+      state.form.name     = info.name;
+      state.form.category = info.category || state.form.category;
+      if (info.price) state.form.price = String(info.price);
+      if (info.fromLocal && info.possibleRecode) {
+        state.pendingRecode = { newCode: code, catalogKey: info.name.trim().toLowerCase() };
+        showToast('Produit connu — nouveau code détecté ?','info');
+      } else if (info.fromLocal) {
+        showToast('✓ ' + info.name + ' (catalogue local)','success');
+      } else {
+        showToast('✓ ' + info.name,'success');
+      }
+    } else {
+      showToast('Produit non trouvé dans Open Food Facts','info');
+    }
     render();
   }
 
@@ -399,6 +443,8 @@
     const qty   = p.qty || 1;
     sales.unshift({ id:uid(), product:p.name, price, normal:p.price, qty, date:fmtDate(Date.now()), days:d, category:p.category });
     save('se_sales', sales);
+    // Mémoriser dans le catalogue
+    addToKnownProducts(p);
     products = products.map(x => x.id === id ? { ...x, sold:true } : x);
     save('se_products', products);
     showToast(`Vendu à ${price.toFixed(2)}€ ✓`,'success');
@@ -417,17 +463,92 @@
     if (!p) return;
     expired_hist.unshift({ id:uid(), product:p.name, exp:p.exp, qty:p.qty||1, category:p.category, removedAt:fmtDate(Date.now()), price:p.price });
     save('se_expired', expired_hist);
+    // Mémoriser aussi dans le catalogue pour future saisie
+    addToKnownProducts(p);
     products = products.map(x => x.id === id ? { ...x, active:false } : x);
     save('se_products', products);
-    showToast('Retiré & archivé dans les périmés ✓','info');
+    showToast('Retiré & archivé ✓','info');
     render();
   }
 
   function deleteProduct(id) {
+    const p = products.find(x => x.id === id);
+    if (!p) return;
+    // Si périmé → toujours passer par l'archivage
+    if (daysLeft(p.exp) !== null && daysLeft(p.exp) <= 0) {
+      markExpired(id);
+      return;
+    }
+    // Mémoriser dans le catalogue
+    addToKnownProducts(p);
     products = products.map(x => x.id === id ? { ...x, active:false } : x);
     save('se_products', products);
     showToast('Retiré','info');
     render();
+  }
+
+  // ── Catalogue produits connus (autocomplétion + résolution code-barres) ────
+  function addToKnownProducts(p) {
+    const catalog = load('se_catalog') || {};
+    const key = p.name.trim().toLowerCase();
+    const existing = catalog[key] || {};
+    // Fusionner les codes-barres connus (un produit peut en avoir plusieurs)
+    const barcodes = new Set(existing.barcodes || []);
+    if (p.barcode) p.barcode.split(',').map(b=>b.trim()).filter(Boolean).forEach(b=>barcodes.add(b));
+    catalog[key] = {
+      name: p.name,
+      category: p.category,
+      price: p.price,
+      barcodes: [...barcodes],       // tableau de tous les codes connus
+      lastSeen: fmtDate(Date.now())
+    };
+    save('se_catalog', catalog);
+  }
+
+  // Cherche dans le catalogue par code-barres exact
+  function catalogByBarcode(code) {
+    const catalog = load('se_catalog') || {};
+    return Object.values(catalog).find(e => (e.barcodes||[]).includes(code) || e.barcode === code) || null;
+  }
+
+  // Cherche dans le catalogue par similarité de nom (pour détecter changement de code)
+  function catalogByName(name) {
+    if (!name) return null;
+    const catalog = load('se_catalog') || {};
+    const q = name.toLowerCase();
+    // Correspondance exacte d'abord
+    const exact = Object.values(catalog).find(e => e.name.toLowerCase() === q);
+    if (exact) return exact;
+    // Correspondance partielle forte (>70% des mots en commun)
+    const qWords = q.split(/\s+/).filter(w=>w.length>2);
+    let best = null, bestScore = 0;
+    for (const e of Object.values(catalog)) {
+      const eWords = e.name.toLowerCase().split(/\s+/).filter(w=>w.length>2);
+      const common = qWords.filter(w=>eWords.some(ew=>ew.includes(w)||w.includes(ew))).length;
+      const score  = common / Math.max(qWords.length, eWords.length, 1);
+      if (score > bestScore && score >= 0.6) { best = e; bestScore = score; }
+    }
+    return best;
+  }
+
+  // Ajoute un code-barres à une entrée catalogue existante
+  function addBarcodeToEntry(catalogKey, newBarcode) {
+    const catalog = load('se_catalog') || {};
+    if (!catalog[catalogKey]) return;
+    const barcodes = new Set(catalog[catalogKey].barcodes || []);
+    barcodes.add(newBarcode);
+    catalog[catalogKey].barcodes = [...barcodes];
+    save('se_catalog', catalog);
+  }
+
+  function searchCatalog(query) {
+    const catalog = load('se_catalog') || {};
+    if (!query || query.length < 2) return [];
+    const q = query.toLowerCase();
+    return Object.values(catalog)
+      .filter(e => e.name.toLowerCase().includes(q))
+      .sort((a,b) => a.name.localeCompare(b.name))
+      .slice(0, 6);
   }
 
   function clearExpiredHist() {
@@ -534,7 +655,21 @@
     return `
       <div class="form-field">
         <div class="field-row"><label class="field-label">Nom du produit <span class="req">*</span></label>${voiceBtn('name','nom')}</div>
-        <input class="field-input${state.voiceField==='name'?' listening':''}" id="f-name" value="${f.name}" placeholder="ex: Milka noisette" oninput="App.setForm('name',this.value)" autocomplete="off">
+        <input class="field-input${state.voiceField==='name'?' listening':''}" id="f-name" value="${f.name}" placeholder="ex: Milka noisette"
+          oninput="App.setForm('name',this.value);App.updateSuggestions(this.value)"
+          autocomplete="off">
+        ${(()=>{
+          const suggestions = searchCatalog(f.name);
+          if (!suggestions.length) return '';
+          return '<div class="suggestions-box">' +
+            suggestions.map(s =>
+              `<div class="suggestion-item" onclick="App.applySuggestion(${JSON.stringify(s).replace(/"/g,'&quot;')})">
+                <span class="sug-name">${s.name}</span>
+                <span class="sug-meta">${s.category} · ${s.price.toFixed(2)}€</span>
+              </div>`
+            ).join('') +
+          '</div>';
+        })()}
       </div>
       <div class="form-field">
         <div class="field-row"><label class="field-label">Date de péremption <span class="req">*</span></label>${voiceBtn('exp','date')}</div>
@@ -560,6 +695,15 @@
         </div>
         ${isLoading?'<div class="lookup-hint">Recherche dans Open Food Facts…</div>':'<div class="lookup-hint">Saisir le code puis 🔍 pour identifier</div>'}
       </div>
+      ${state.pendingRecode ? `
+        <div class="recode-banner">
+          <div class="recode-icon">🔄</div>
+          <div class="recode-text">Nouveau code-barres détecté pour un produit connu.<br><strong>Faut-il associer ce code au produit existant ?</strong></div>
+          <div class="recode-btns">
+            <button class="recode-yes" onclick="App.confirmRecode(true)">Oui, associer</button>
+            <button class="recode-no"  onclick="App.confirmRecode(false)">Non, nouveau produit</button>
+          </div>
+        </div>` : ''}
       <button class="submit-btn" onclick="App.${actionFn}()">${actionFn==='addProduct'?'➕ Ajouter':'💾 Enregistrer'}</button>
       <button class="cancel-btn" onclick="App.closeModal()">Annuler</button>
     `;
@@ -784,6 +928,23 @@
     clearExpiredHist() { clearExpiredHist(); },
     startScan()        { startScan(); },
     lookupManual(c)    { lookupManual(c); },
+    updateSuggestions(v) { state.form.name = v; render(); },
+    confirmRecode(yes) {
+      if (yes && state.pendingRecode) {
+        addBarcodeToEntry(state.pendingRecode.catalogKey, state.pendingRecode.newCode);
+        showToast('Code associé au produit existant ✓', 'success');
+      }
+      state.pendingRecode = null;
+      render();
+    },
+    applySuggestion(s) {
+      state.form.name     = s.name;
+      state.form.category = s.category;
+      state.form.price    = String(s.price);
+      state.form.barcode  = s.barcode || state.form.barcode;
+      showToast('Produit connu pré-rempli ✓','success');
+      render();
+    },
     startVoice(k)      { startVoice(k); },
     requestNotif()     { requestNotif(); },
     exportData() {
