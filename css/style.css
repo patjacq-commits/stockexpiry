@@ -187,3 +187,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* ── 4 nav tabs (smaller) ────────────────────────────────────────────────── */
 .nav-tab{font-size:9px;padding:8px 2px 6px}
 .tab-icon{font-size:18px}
+
+/* ── Autocomplete suggestions ────────────────────────────────────────────── */
+.suggestions-box{background:#1a1d27;border:1px solid #2a2d3e;border-radius:8px;overflow:hidden;margin-top:-8px;margin-bottom:12px}
+.suggestion-item{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;cursor:pointer;border-bottom:1px solid #222;transition:background 0.1s}
+.suggestion-item:last-child{border-bottom:none}
+.suggestion-item:active{background:#2a2d3e}
+.sug-name{font-size:13px;font-weight:700;color:#e8eaf0}
+.sug-meta{font-size:11px;color:#555;text-align:right}
+
+/* ── Recode banner (nouveau code-barres pour produit connu) ──────────────── */
+.recode-banner{background:rgba(79,142,247,0.1);border:1px solid rgba(79,142,247,0.3);border-radius:10px;padding:12px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px}
+.recode-icon{font-size:20px}
+.recode-text{font-size:12px;color:#a0b4d0;line-height:1.5}
+.recode-text strong{color:#e8eaf0}
+.recode-btns{display:flex;gap:8px}
+.recode-yes{flex:1;background:#4f8ef7;color:#fff;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer}
+.recode-no{flex:1;background:#1a1d27;color:#888;border:1px solid #2a2d3e;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer}
